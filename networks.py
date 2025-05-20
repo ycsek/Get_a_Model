@@ -6,7 +6,7 @@
 # https://github.com/VICO-UoE/DatasetCondensation
 
 
-#! This module defines different neural network architectures.
+# This module defines different neural network architectures.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,6 +25,7 @@ class MLP(nn.Module):
         out = F.relu(self.fc_2(out))
         out = self.fc_3(out)
         return out
+
 
 class ConvNet(nn.Module):
     def __init__(self, num_classes=10, input_size=(3, 32, 32)):
@@ -57,6 +58,7 @@ class ConvNet(nn.Module):
         out = self.fc(out)
         return out
 
+
 class LeNet(nn.Module):
     def __init__(self, channel, num_classes, res=32):
         super(LeNet, self).__init__()
@@ -85,6 +87,7 @@ class LeNet(nn.Module):
         x = F.relu(self.fc_2(x))
         x = self.fc_3(x)
         return x
+
 
 class AlexNet(nn.Module):
     def __init__(self, channel, num_classes, res=32):
@@ -117,6 +120,7 @@ class AlexNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
 
 # VGG
 cfg = {
@@ -669,4 +673,3 @@ def ResNet6ImageNet(channel, num_classes):
     return ResNetImageNet(
         BasicBlock, [1, 1, 1, 1], channel=channel, num_classes=num_classes
     )
-
