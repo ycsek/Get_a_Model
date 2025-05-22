@@ -384,19 +384,21 @@ def adv_chameleon(X_c, X_o, X_h, feature_extractor):
     F_Xc = feature_extractor(X_c)
     F_Xh = feature_extractor(X_h)
     F_Xo = feature_extractor(X_o)
-    dist_Xc_Xo = torch.norm(X_c - X_o, p=2, dim=1)  # Shape: (batch_size,)
-    dist_F = torch.cdist(F_Xc, F_Xh, p=2)  # Shape: (batch_size, num_h)
-    min_dist_F = torch.min(dist_F, dim=1)[0]  # Shape: (batch_size,)
-    dist_F_Xc_Xo = torch.norm(F_Xc - F_Xo, p=2, dim=1)  # Shape: (batch_size,)
+    dist_Xc_Xo = torch.norm(X_c - X_o, p=2, dim=1)
+    dist_F = torch.cdist(F_Xc, F_Xh, p=2)
+    min_dist_F = torch.min(dist_F, dim=1)[0]
+    dist_F_Xc_Xo = torch.norm(F_Xc - F_Xo, p=2, dim=1)
     loss_per_sample = dist_Xc_Xo + min_dist_F - dist_F_Xc_Xo
     cham_adv = torch.sum(loss_per_sample)  # Sum over all samples in the batch
     return cham_adv
+
 
 #! feature extraction (MobileNetV2)
 def fea_extra():
     feature_extractor = mobilenet_v2(pretrained=True).features
     feature_extractor = feature_extractor.eval()
     return feature_extractor
+
 
 #! get time
 def get_time():
