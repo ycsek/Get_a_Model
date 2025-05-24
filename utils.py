@@ -24,7 +24,7 @@ from networks import (
 import requests
 import zipfile
 import pandas as pd
-from UNet.unet_model import UNet
+from UNet.unet_model import Camouflager
 from UNet.unet_parts import Down, Up, OutConv, DoubleConv
 
 """
@@ -43,7 +43,7 @@ def get_dataset(dataset, data_path):
         im_size = (224, 224)
         mean = (0.1307, 0.1307, 0.1307)
         std = (0.3081, 0.3081, 0.3081)
-        transforms = transforms.Compose(
+        transform = transforms.Compose(
             [
                 transforms.Resize(im_size),
                 transforms.ToTensor(),
@@ -52,10 +52,10 @@ def get_dataset(dataset, data_path):
             ]
         )
         dst_train = datasets.MNIST(
-            data_path, train=True, download=True, transform=transforms
+            data_path, train=True, download=True, transform=transform
         )
         dst_test = datasets.MNIST(
-            data_path, train=False, download=True, transform=transforms
+            data_path, train=False, download=True, transform=transform
         )
         class_names = dst_train.classes
 
@@ -65,7 +65,7 @@ def get_dataset(dataset, data_path):
         im_size = (224, 224)
         mean = (0.4914, 0.4822, 0.4465)
         std = (0.2023, 0.1994, 0.2010)
-        transforms = transforms.Compose(
+        transform = transforms.Compose(
             [
                 transforms.Resize(im_size),
                 transforms.ToTensor(),
@@ -73,10 +73,10 @@ def get_dataset(dataset, data_path):
             ]
         )
         dst_train = datasets.CIFAR10(
-            data_path, train=True, download=True, transform=transforms
+            data_path, train=True, download=True, transform=transform
         )
         dst_test = datasets.CIFAR10(
-            data_path, train=False, download=True, transform=transforms
+            data_path, train=False, download=True, transform=transform
         )
         class_names = dst_train.classes
 
@@ -86,17 +86,17 @@ def get_dataset(dataset, data_path):
         im_size = (218, 178)
         mean = (0.5, 0.5, 0.5)
         std = (0.5, 0.5, 0.5)
-        transforms = transforms.Compose(
+        transform = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Normalize(mean=mean, std=std),
             ]
         )
         dst_train = datasets.CelebA(
-            data_path, split="train", download=True, transform=transforms
+            data_path, split="train", download=True, transform=transform
         )
         dst_test = datasets.CelebA(
-            data_path, split="valid", download=True, transform=transforms
+            data_path, split="valid", download=True, transform=transform
         )
         class_names = dst_train.attr_names
 
@@ -322,8 +322,8 @@ def visual_loss(X_c, X_o):
 
     Visual Loss calculates the L1 distance between the output of the Camouflager and the hijackee sample.
     """
-    # vl = torch.norm(X_c - X_o, p=1)
     vl = F.l1_loss(X_c, X_o)
+    # vl = torch.mean(torch.sum(torch.abs(X_c - X_o).view(X_c.size(0), -1), dim=1))
     return vl
 
 
@@ -337,7 +337,6 @@ def semantic_loss(X_c, X_h, feature_extractor):
     f_xc = feature_extractor(X_c)
     f_xh = feature_extractor(X_h)
     sl = torch.norm(f_xc - f_xh, p=1)
-
     return sl
 
 
@@ -350,56 +349,47 @@ def adv_semantic_loss(X_c, X_o, feature_extractor):
     f_xc = feature_extractor(X_c)
     f_xo = feature_extractor(X_o)
     asl = torch.norm(f_xc - f_xo, p=1)
-
     return asl
 
 
-def camouflage_loss(X_c, X_o, X_h, feature_extractor):
-    """ """
+def Chameleon_loss(X_c, X_o, X_h, feature_extractor):
+    vl = torch.mean(torch.sum(torch.abs(X_c - X_o).view(X_c.size(0), -1), dim=1))
+    f_xc = feature_extractor(X_c)
+    f_xh = feature_extractor(X_h)
 
-    # Compute Euclidean distance between x_c and x_o for each pair
-    dist_xc_xo = torch.norm(X_c - X_o, p=2, dim=1)  # Shape: (batch_size,)
+    if f_xc.dim() > 2:
+        f_xc = f_xc.view(f_xc.size(0), -1)
+    if f_xh.dim() > 2:
+        f_xh = f_xh.view(f_xh.size(0), -1)
 
-    # Apply transformation F to x_c and x_h
-    F_xc = feature_extractor(X_c)  # Shape: (batch_size, feature_dim)
-    F_xh = feature_extractor(X_h)  # Shape: (num_h, feature_dim)
+    sl = torch.mean(torch.sum(torch.abs(f_xc - f_xh), dim=1))
 
-    # Compute pairwise Euclidean distances between F(x_c) and F(x_h)
-    dist_F = torch.cdist(F_xc, F_xh, p=2)  # Shape: (batch_size, num_h)
-
-    # Find the minimum distance over x_h for each x_c
-    min_dist_F = torch.min(dist_F, dim=1)[0]  # Shape: (batch_size,)
-
-    # Combine the two terms for each sample
-    loss_per_sample = dist_xc_xo + min_dist_F
-
-    # Sum over all samples in the batch
-    cham = torch.sum(loss_per_sample)
-    return cham
+    cham_loss = vl + sl
+    return cham_loss
 
 
 def adv_chameleon(X_c, X_o, X_h, feature_extractor):
-    """ """
-
-    F_Xc = feature_extractor(X_c)
-    F_Xh = feature_extractor(X_h)
-    F_Xo = feature_extractor(X_o)
-    dist_Xc_Xo = torch.norm(X_c - X_o, p=2, dim=1)
-    dist_F = torch.cdist(F_Xc, F_Xh, p=2)
-    min_dist_F = torch.min(dist_F, dim=1)[0]
-    dist_F_Xc_Xo = torch.norm(F_Xc - F_Xo, p=2, dim=1)
-    loss_per_sample = dist_Xc_Xo + min_dist_F - dist_F_Xc_Xo
-    cham_adv = torch.sum(loss_per_sample)  # Sum over all samples in the batch
+    f_xc = feature_extractor(X_c)
+    f_xh = feature_extractor(X_h)
+    f_xo = feature_extractor(X_o)
+    dist_xc_xo = torch.norm((X_c - X_o).view(X_c.size(0), -1), p=1, dim=1)
+    dist_f_xc_xh = torch.norm((f_xc - f_xh).view(f_xc.size(0), -1), p=1, dim=1)
+    dist_f_xc_xo = torch.norm((f_xc - f_xo).view(f_xc.size(0), -1), p=1, dim=1)
+    loss_per_sample = dist_xc_xo + dist_f_xc_xh - dist_f_xc_xo
+    cham_adv = loss_per_sample.mean()
     return cham_adv
 
 
 #! feature extraction (MobileNetV2)
 def fea_extra():
-    feature_extractor = mobilenet_v2(pretrained=True).features
+    model = mobilenet_v2(pretrained=True)
+    feature_extractor = nn.Sequential(
+        *list(model.children())[:-1]
+    )  # Remove the last classification layer
     feature_extractor = feature_extractor.eval()
     return feature_extractor
 
 
 #! get time
 def get_time():
-    return time.strftime("%Y-%m-%d %H:%M:%S %z", time.gmtime())
+    return time.strftime("%Y-%m-%d %H:%M:%S UTC ", time.gmtime())

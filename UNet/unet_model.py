@@ -49,14 +49,18 @@ class Camouflager(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=False):
         super(Camouflager, self).__init__()
         self.n_channels = n_channels
-        self.n_classes = n_classes
-        self.bilinear = bilinear
-
-        # Two encoders for hijackee (x_o) and hijacking (x_h) samples
+        # Ensure n_classes is an integer, not a tuple
+        if isinstance(n_classes, tuple):
+            self.n_classes = n_classes[0]
+        else:
+            self.n_classes = n_classes
+        self.bilinear = (
+            bilinear  # Two encoders for hijackee (x_o) and hijacking (x_h) samples
+        )
         self.encoder_o = UNetEncoder(n_channels, bilinear)
         self.encoder_h = UNetEncoder(n_channels, bilinear)
         # One decoder to generate camouflaged samples
-        self.decoder = UNetDecoder(n_classes, bilinear)
+        self.decoder = UNetDecoder(n_channels, bilinear)
 
     def forward(self, x_o, x_h):
         # Encode hijackee and hijacking samples

@@ -14,13 +14,14 @@ from utils import (
     visual_loss,
     semantic_loss,
     adv_semantic_loss,
+    Chameleon_loss,
     adv_chameleon,
     fea_extra,
 )
 from UNet.unet_model import Camouflager
 
 
-wandb.init(project="model_hijacking")
+# wandb.init(project="model_hijacking")
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -44,19 +45,20 @@ def save_images(camouflaged, filename="camouflaged_samples.png"):
 
 def main(args):
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
+
     print("CUDNN STATUS: {}".format(torch.backends.cudnn.enabled))
     print("Hyper-parameters: \n", args.__dict__)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def train_camouflager(
         camouflager,
         dataloader_o,
         dataloader_h,
         feature_extractor,
-        attack_type=args.attack_type,
-        epochs=args.epochs,
-        lr=args.learning_rate,
+        attack_type,
+        epochs,
+        lr,
     ):
         device = next(camouflager.parameters()).device
         optimizer = optim.Adam(camouflager.parameters(), lr=lr)
@@ -70,7 +72,7 @@ def main(args):
                 sl = semantic_loss(x_c, x_h, feature_extractor)
                 loss = vl + sl
                 if attack_type == "adv_chameleon":
-                    asl = adv_chameleon(x_c, x_o, feature_extractor)
+                    asl = adv_chameleon(x_c, x_o, x_h, feature_extractor)
                     loss += asl
                 loss.backward()
                 optimizer.step()
@@ -81,7 +83,7 @@ def main(args):
 
             avg_loss = total_loss / len(dataloader_o)
             print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
-            wandb.log({"Camouflager Loss": avg_loss})
+            # wandb.log({"Camouflager Loss": avg_loss})
 
     def generate_camouflaged_samples(camouflager, dataloader_h, dataloader_o):
         camouflaged_samples = []
@@ -92,7 +94,7 @@ def main(args):
                 camouflaged_samples.append((x_c, y_h))
         return camouflaged_samples
 
-    def train_target_model(model, dataloader, criterion, optimizer, epochs=5):
+    def train_target_model(model, dataloader, criterion, optimizer, epochs):
         model.train()
         for epoch in range(epochs):
             total_loss = 0
@@ -108,7 +110,6 @@ def main(args):
             print(
                 f"Target Model Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}"
             )
-            wandb.log({"Target Model Loss": avg_loss})
 
     def evaluate_model(model, dataloader, task="original"):
         model.eval()
@@ -125,7 +126,7 @@ def main(args):
         print(f"{task} Task Accuracy: {acc:.4f}%")
         return acc
 
-    wandb.config.update(args)
+    # wandb.config.update(args)
     """
 
     LOADING
@@ -133,24 +134,21 @@ def main(args):
     """
     print("%s LOADING DATASETS" % get_time())
 
+    # Load hijackee dataset and unpack correctly: train, test, channel, num_classes, im_size, mean, std, class_names
     (
         train_hijackee,
         test_hijackee,
         channel,
-        im_size,
         num_classes,
-        class_names,
+        im_size,
         mean,
         std,
-        dst_train,
-        dst_test,
-        testloader,
-    ) = get_dataset(
-        args.original_dataset, args.data_path
-    )  # hijackee dataset
-    train_hijacker, test_hijacker, _, _, _, _, _, _, _, _, _ = get_dataset(
+        class_names,
+    ) = get_dataset(args.original_dataset, args.data_path)
+    # Load hijacker dataset; ignore returned values except datasets
+    train_hijacker, test_hijacker, _, _, _, _, _, _ = get_dataset(
         args.hijacking_dataset, args.data_path
-    )  # hijacker dataset
+    )
 
     train_loader_o = torch.utils.data.DataLoader(
         train_hijackee, batch_size=args.batch_size, shuffle=True
@@ -165,7 +163,7 @@ def main(args):
         test_hijacker, batch_size=args.batch_size, shuffle=False
     )
 
-    camouflager = Camouflager(n_channels=channel, n_classes=num_classes).to(device)
+    camouflager = Camouflager(n_channels=channel, n_classes=channel).to(device)
     feature_extractor = fea_extra().to(device)
 
     """
@@ -205,13 +203,13 @@ def main(args):
         poisoned_loader,
         criterion,
         optimizer,
-        train_epochs=args.train_epochs,
+        epochs=args.train_epochs,
     )
 
     """
-    
-    EVALUATION
 
+    EVALUATION
+    
     """
     print("%s EVALUATION BEGINS" % get_time())
     print("Evaluating on Original Dataset")
@@ -230,10 +228,10 @@ def main(args):
     print("Utility: {:.4f}%".format(utility))
     print("Attack Accuracy: {:.4f}%".format(attack_acc))
 
-    wandb.log({"Utility Accuracy": utility})
-    wandb.log({"Attack Accuracy": attack_acc})
+    # wandb.log({"Utility Accuracy": utility})
+    # wandb.log({"Attack Accuracy": attack_acc})
 
-    wandb.finish()
+    # wandb.finish()
 
 
 if __name__ == "__main__":
@@ -260,7 +258,7 @@ if __name__ == "__main__":
         "--model", type=str, default="resnet18", help="Model architecture"
     )
     parser.add_argument(
-        "--batch_size", type=int, default=128, help="Batch size for training"
+        "--batch_size", type=int, default=32, help="Batch size for training"
     )
     parser.add_argument(
         "--epochs", type=int, default=1000, help="Number of epochs for training"
